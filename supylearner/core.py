@@ -1,6 +1,6 @@
 from sklearn import clone, metrics
 from sklearn.base import BaseEstimator, RegressorMixin
-import sklearn.cross_validation as cv
+from sklearn.model_selection import KFold
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b, nnls, fmin_slsqp
 
@@ -79,15 +79,15 @@ class SuperLearner(BaseEstimator):
     
     def __init__(self, library, libnames=None, K=5, loss='L2', discrete=False, coef_method='SLSQP',\
                  save_pred_cv=False, bound=0.00001):
-        self.library=library[:]
-        self.libnames=libnames
-        self.K=K
-        self.loss=loss
-        self.discrete=discrete
-        self.coef_method=coef_method
-        self.n_estimators=len(library)
-        self.save_pred_cv=save_pred_cv
-        self.bound=bound
+        self.library = library[:]
+        self.libnames = libnames
+        self.K = K
+        self.loss = loss
+        self.discrete = discrete
+        self.coef_method = coef_method
+        self.n_estimators = len(library)
+        self.save_pred_cv = save_pred_cv
+        self.bound = bound
     
     def fit(self, X, y):
         """
@@ -106,32 +106,32 @@ class SuperLearner(BaseEstimator):
         self : returns an instance of self.
         """
         
-        n=len(y)
-        folds = cv.KFold(n, self.K)
+        n = len(y)
+        folds = KFold(n_splits=self.K)
 
         y_pred_cv = np.empty(shape=(n, self.n_estimators))
-        for train_index, test_index in folds:
-            X_train, X_test=X[train_index], X[test_index]
-            y_train, y_test=y[train_index], y[test_index]
+        for train_index, test_index in folds.split(X):
+            X_train, X_test = X[train_index], X[test_index]
+            y_train, y_test = y[train_index], y[test_index]
             for aa in range(self.n_estimators):
-                est=clone(self.library[aa])
-                est.fit(X_train,y_train)
+                est = clone(self.library[aa])
+                est.fit(X_train, y_train)
         
-                y_pred_cv[test_index, aa]=self._get_pred(est, X_test)
+                y_pred_cv[test_index, aa] = self._get_pred(est, X_test)
     
-        self.coef=self._get_coefs(y, y_pred_cv)
+        self.coef = self._get_coefs(y, y_pred_cv)
 
-        self.fitted_library=clone(self.library)
+        self.fitted_library = clone(self.library)
         for est in self.fitted_library:
             est.fit(X, y)
             
-        self.risk_cv=[]
+        self.risk_cv = []
         for aa in range(self.n_estimators):
-            self.risk_cv.append(self._get_risk(y, y_pred_cv[:,aa]))
+            self.risk_cv.append(self._get_risk(y, y_pred_cv[:, aa]))
         self.risk_cv.append(self._get_risk(y, self._get_combination(y_pred_cv, self.coef)))
 
         if self.save_pred_cv:
-            self.y_pred_cv=y_pred_cv
+            self.y_pred_cv = y_pred_cv
 
         return self
                         
@@ -155,12 +155,11 @@ class SuperLearner(BaseEstimator):
         """
         
         n_X = X.shape[0]
-        y_pred_all = np.empty((n_X,self.n_estimators))
+        y_pred_all = np.empty((n_X, self.n_estimators))
         for aa in range(self.n_estimators):
-            y_pred_all[:,aa]=self._get_pred(self.fitted_library[aa], X)
+            y_pred_all[:, aa]=self._get_pred(self.fitted_library[aa], X)
         y_pred=self._get_combination(y_pred_all, self.coef)
         return y_pred
-
 
     def summarize(self):
         """
@@ -183,13 +182,11 @@ class SuperLearner(BaseEstimator):
             libnames=[est.__class__.__name__ for est in self.library]
         else:
             libnames=self.libnames
-        print "Cross-validated risk estimates for each estimator in the library:"
-        print np.column_stack((libnames, self.risk_cv[:-1]))
-        print "\nCoefficients:"
-        print np.column_stack((libnames,self.coef))
-        print "\n(Not cross-valided) estimated risk for SL:", self.risk_cv[-1]
-
-        
+        print("Cross-validated risk estimates for each estimator in the library:")
+        print(np.column_stack((libnames, self.risk_cv[:-1])))
+        print("\nCoefficients:")
+        print(np.column_stack((libnames, self.coef)))
+        print("\n(Not cross-valided) estimated risk for SL:", self.risk_cv[-1])
 
     def _get_combination(self, y_pred_mat, coef):
         """
@@ -212,10 +209,10 @@ class SuperLearner(BaseEstimator):
         
         
         """
-        if self.loss=='L2':
-            comb=np.dot(y_pred_mat, coef)
-        elif self.loss=='nloglik':
-            comb=_inv_logit(np.dot(_logit(_trim(y_pred_mat, self.bound)), coef))
+        if self.loss == 'L2':
+            comb = np.dot(y_pred_mat, coef)
+        elif self.loss == 'nloglik':
+            comb = _inv_logit(np.dot(_logit(_trim(y_pred_mat, self.bound)), coef))
         return comb
 
     def _get_risk(self, y, y_pred):
@@ -264,8 +261,8 @@ class SuperLearner(BaseEstimator):
             def ff(x):
                 return self._get_risk(y, self._get_combination(y_pred_cv, x))
             x0=np.array([1./self.n_estimators]*self.n_estimators)
-            bds=[(0,1)]*self.n_estimators
-            coef_init,b,c=fmin_l_bfgs_b(ff, x0, bounds=bds, approx_grad=True)
+            bds=[(0, 1)]*self.n_estimators
+            coef_init, b, c=fmin_l_bfgs_b(ff, x0, bounds=bds, approx_grad=True)
             if c['warnflag'] is not 0:
                 raise SLError("fmin_l_bfgs_b failed when trying to calculate coefficients")
             
@@ -280,7 +277,7 @@ class SuperLearner(BaseEstimator):
             def constr(x):
                 return np.array([ np.sum(x)-1 ])
             x0=np.array([1./self.n_estimators]*self.n_estimators)
-            bds=[(0,1)]*self.n_estimators
+            bds=[(0, 1)]*self.n_estimators
             coef_init, b, c, d, e = fmin_slsqp(ff, x0, f_eqcons=constr, bounds=bds, disp=0, full_output=1)
             if d is not 0:
                 raise SLError("fmin_slsqp failed when trying to calculate coefficients")
@@ -304,23 +301,27 @@ class SuperLearner(BaseEstimator):
         like a predicted probability, and not a class prediction.
         """
         if self.loss == 'L2':
-            pred=est.predict(X)
+            pred = est.predict(X)
+
         if self.loss == 'nloglik':
             if hasattr(est, "predict_proba"):
                 #There should be a better way to do this
                 #for SVM classifier
                 if est.__class__.__name__ == "SVC":
-                    pred=est.predict_proba(X)[:, 0]
+                    pred = est.predict_proba(X)[:, 0]
 
                 #for logistic regression
                 elif est.__class__.__name__ == "LogisticRegression":
-                    pred=est.predict_proba(X)[:, 1]
+                    pred = est.predict_proba(X)[:, 1]
                 else:
-                    pred=est.predict_proba(X)
+                    pred = est.predict_proba(X)
             else:
-                pred=est.predict(X)
+                pred = est.predict(X)
                 if pred.min() < 0 or pred.max() > 1:
                     raise SLError("Probability less than zero or greater than one")
+        #if len(pred.shape) > 1:
+        pred = np.squeeze(pred)
+        print('pred', pred.shape)
         return pred
 
 def _trim(p, bound):
@@ -370,10 +371,6 @@ def _inv_logit(x):
     """
     
     return 1/(1+np.exp(-x))
-    
-    
-        
-    
 
 def cv_superlearner(sl, X, y, K=5):
     """
@@ -393,7 +390,7 @@ def cv_superlearner(sl, X, y, K=5):
     y : numpy array of shape [n_samples]
         Target values
 
-    K : Number of folds for cross-validating sl and candidate estimators.  More yeilds better result
+    K : Number of folds for cross-validating sl and candidate estimators.  More yields better result
         because training sets are closer in size to the full data-set, but more takes longer.
     
     Returns
@@ -404,39 +401,36 @@ def cv_superlearner(sl, X, y, K=5):
     """
     library = sl.library[:]
 
-    n=len(y)
-    folds=cv.KFold(n, K)
+    n = len(y)
+    folds = KFold(n_splits=K)
     y_pred_cv = np.empty(shape=(n, len(library)+1))
     
 
-    for train_index, test_index in folds:
-        X_train, X_test=X[train_index], X[test_index]
-        y_train, y_test=y[train_index], y[test_index]
+    for train_index, test_index in folds.split(X):
+        X_train, X_test = X[train_index], X[test_index]
+        y_train, y_test = y[train_index], y[test_index]
         for aa in range(len(library)):
-            est=library[aa]
-            est.fit(X_train,y_train)
-            y_pred_cv[test_index, aa]=sl._get_pred(est, X_test)
+            est = library[aa]
+            est.fit(X_train, y_train)
+            y_pred_cv[test_index, aa] = sl._get_pred(est, X_test)[:, 0]
         sl.fit(X_train, y_train)
-        y_pred_cv[test_index, len(library)]=sl.predict(X_test)
+        y_pred_cv[test_index, len(library)] = sl.predict(X_test)
 
-    risk_cv=np.empty(shape=(len(library)+1, 1))
+    risk_cv = np.empty(shape=(len(library) + 1, 1))
     for aa in range(len(library)+1):
         #List for risk for each fold for estimator aa
-        risks=[]
-        for train_index, test_index in folds:
+        risks = []
+        for train_index, test_index in folds.split(y):
             risks.append(sl._get_risk(y[test_index], y_pred_cv[test_index, aa]))
         #Take mean across volds
-        risk_cv[aa]= np.mean(risks)
+        risk_cv[aa] = np.mean(risks)
 
     if sl.libnames is None:
-        libnames=[est.__class__.__name__ for est in sl.library]
+        libnames = [est.__class__.__name__ for est in sl.library]
     else:
-        libnames=sl.libnames[:]
+        libnames = sl.libnames[:]
     libnames.append("SuperLearner")
 
-    print "Cross-validated risk estimates for each estimator in the library and SuperLearner:"
-    print np.column_stack((libnames, risk_cv))
+    print("Cross-validated risk estimates for each estimator in the library and SuperLearner:")
+    print(np.column_stack((libnames, risk_cv)))
     return risk_cv
-    
-
-    
