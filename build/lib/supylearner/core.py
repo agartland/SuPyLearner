@@ -1,10 +1,8 @@
 from sklearn import clone, metrics
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.model_selection import KFold
+import numpy as np
 from scipy.optimize import fmin_l_bfgs_b, nnls, fmin_slsqp
-
-__all__ = ['SuperLearner',
-            'cv_superlearner']
 
 class SLError(Exception):
     """
@@ -303,7 +301,7 @@ class SuperLearner(BaseEstimator):
         like a predicted probability, and not a class prediction.
         """
         if self.loss == 'L2':
-            pred = est.predict(X)[:, 0]
+            pred = est.predict(X)
 
         if self.loss == 'nloglik':
             if hasattr(est, "predict_proba"):
@@ -316,14 +314,14 @@ class SuperLearner(BaseEstimator):
                 elif est.__class__.__name__ == "LogisticRegression":
                     pred = est.predict_proba(X)[:, 1]
                 else:
-                    pred = est.predict_proba(X)[:, 0]
+                    pred = est.predict_proba(X)
             else:
-                pred = est.predict(X)[:, 0]
+                pred = est.predict(X)
                 if pred.min() < 0 or pred.max() > 1:
                     raise SLError("Probability less than zero or greater than one")
         #if len(pred.shape) > 1:
         pred = np.squeeze(pred)
-        # print('pred', pred.shape)
+        print('pred', pred.shape)
         return pred
 
 def _trim(p, bound):
@@ -414,7 +412,7 @@ def cv_superlearner(sl, X, y, K=5):
         for aa in range(len(library)):
             est = library[aa]
             est.fit(X_train, y_train)
-            y_pred_cv[test_index, aa] = sl._get_pred(est, X_test)
+            y_pred_cv[test_index, aa] = sl._get_pred(est, X_test)[:, 0]
         sl.fit(X_train, y_train)
         y_pred_cv[test_index, len(library)] = sl.predict(X_test)
 
@@ -424,7 +422,7 @@ def cv_superlearner(sl, X, y, K=5):
         risks = []
         for train_index, test_index in folds.split(y):
             risks.append(sl._get_risk(y[test_index], y_pred_cv[test_index, aa]))
-        #Take mean across folds
+        #Take mean across volds
         risk_cv[aa] = np.mean(risks)
 
     if sl.libnames is None:
